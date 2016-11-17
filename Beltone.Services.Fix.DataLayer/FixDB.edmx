@@ -1,0 +1,297 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="2.0" xmlns:edmx="http://schemas.microsoft.com/ado/2008/10/edmx">
+  <!-- EF Runtime content -->
+  <edmx:Runtime>
+    <!-- SSDL content -->
+    <edmx:StorageModels>
+    <Schema Namespace="Beltone.FixDbModel.Store" Provider="System.Data.SqlClient" ProviderManifestToken="2008" Alias="Self" xmlns:store="http://schemas.microsoft.com/ado/2007/12/edm/EntityStoreSchemaGenerator" xmlns="http://schemas.microsoft.com/ado/2009/02/edm/ssdl">
+        <EntityType Name="Logins">
+          <Key>
+            <PropertyRef Name="UserName" />
+          </Key>
+          <Property Name="UserName" Type="nvarchar" MaxLength="20" Nullable="false" />
+          <Property Name="Password" Type="nvarchar" MaxLength="20" Nullable="false" />
+          <Property Name="CanReplicate" Type="bit" Nullable="false" />
+          <Property Name="CanPlaceOrder" Type="bit" Nullable="false" />
+        </EntityType>
+        <EntityType Name="Sessions">
+          <Key>
+            <PropertyRef Name="RecordID" />
+          </Key>
+          <Property Name="RecordID" Type="bigint" StoreGeneratedPattern="Identity" Nullable="false" />
+          <Property Name="RequestType" Type="nvarchar" MaxLength="15" Nullable="false" />
+          <Property Name="SessionKey" Type="uniqueidentifier" Nullable="false" />
+          <Property Name="UserName" Type="nvarchar" MaxLength="20" />
+          <Property Name="Password" Type="nvarchar" MaxLength="20" />
+          <Property Name="QueueIP" Type="nvarchar" MaxLength="15" />
+          <Property Name="QueueName" Type="nvarchar" MaxLength="50" />
+          <Property Name="QueuePath" Type="nvarchar" MaxLength="100" />
+          <Property Name="ConnectionDateTime" Type="datetime" Nullable="false" />
+          <Property Name="IsTestRequested" Type="bit" Nullable="false" />
+          <Property Name="TestReqDateTime" Type="datetime" />
+          <Property Name="ReqTestKey" Type="nvarchar" MaxLength="50" />
+          <Property Name="IsTestResponded" Type="bit" Nullable="false" />
+          <Property Name="TestResDateTime" Type="datetime" />
+          <Property Name="ResTestKey" Type="nvarchar" MaxLength="50" />
+          <Property Name="IsValidTestKey" Type="bit" Nullable="false" />
+          <Property Name="RequestedSubscription" Type="bit" Nullable="false" />
+          <Property Name="IsOnline" Type="bit" Nullable="false" />
+          <Property Name="IsSubscribed" Type="bit" Nullable="false" />
+          <Property Name="SubscriptionDateTimeString" Type="nvarchar" MaxLength="10" />
+          <Property Name="SubscriptionDateTime" Type="datetime" />
+          <Property Name="Note" Type="nvarchar" MaxLength="100" />
+          <Property Name="ErrCode" Type="nvarchar" MaxLength="10" />
+          <Property Name="ErrMsg" Type="nvarchar" MaxLength="100" />
+          <Property Name="IsUnsubscribed" Type="bit" Nullable="false" />
+          <Property Name="UnsubscriptionDateTime0" Type="datetime" />
+          <Property Name="NewQueue" Type="bit" Nullable="false" />
+          <Property Name="FlushUpdatesOffline" Type="bit" Nullable="false" />
+          <Property Name="IsSessionFaulted" Type="bit" Nullable="false" />
+          <Property Name="SessionFaultDateTime" Type="datetime" />
+          <Property Name="ResubSessionKey" Type="uniqueidentifier" />
+        </EntityType>
+        <EntityType Name="SessionsHistory">
+          <Key>
+            <PropertyRef Name="RecordID" />
+          </Key>
+          <Property Name="RecordID" Type="bigint" StoreGeneratedPattern="Identity" Nullable="false" />
+          <Property Name="SessionKey" Type="uniqueidentifier" Nullable="false" />
+          <Property Name="RequestType" Type="nvarchar" MaxLength="15" Nullable="false" />
+          <Property Name="UserName" Type="nvarchar" MaxLength="20" />
+          <Property Name="Password" Type="nvarchar" MaxLength="20" />
+          <Property Name="QueueIP" Type="nvarchar" MaxLength="15" />
+          <Property Name="QueueName" Type="nvarchar" MaxLength="50" />
+          <Property Name="QueuePath" Type="nvarchar" MaxLength="100" />
+          <Property Name="ConnectionDateTime" Type="datetime" Nullable="false" />
+          <Property Name="IsTestRequested" Type="bit" Nullable="false" />
+          <Property Name="TestReqDateTime" Type="datetime" />
+          <Property Name="ReqTestKey" Type="nvarchar" MaxLength="50" />
+          <Property Name="IsTestResponded" Type="bit" Nullable="false" />
+          <Property Name="TestResDateTime" Type="datetime" />
+          <Property Name="ResTestKey" Type="nvarchar" MaxLength="50" />
+          <Property Name="IsValidTestKey" Type="bit" Nullable="false" />
+          <Property Name="RequestedSubscription" Type="bit" Nullable="false" />
+          <Property Name="IsOnline" Type="bit" Nullable="false" />
+          <Property Name="IsSubscribed" Type="bit" Nullable="false" />
+          <Property Name="SubscriptionDateTimeString" Type="nvarchar" MaxLength="10" />
+          <Property Name="SubscriptionDateTime" Type="datetime" />
+          <Property Name="Note" Type="nvarchar" MaxLength="100" />
+          <Property Name="ErrCode" Type="nvarchar" MaxLength="10" />
+          <Property Name="ErrMsg" Type="nvarchar" MaxLength="100" />
+          <Property Name="IsUnsubscribed" Type="bit" Nullable="false" />
+          <Property Name="UnsubscriptionDateTime0" Type="datetime" />
+          <Property Name="NewQueue" Type="bit" Nullable="false" />
+          <Property Name="FlushUpdatesOffline" Type="bit" Nullable="false" />
+          <Property Name="IsSessionFaulted" Type="bit" Nullable="false" />
+          <Property Name="SessionFaultDateTime" Type="datetime" />
+          <Property Name="ResubSessionKey" Type="uniqueidentifier" />
+        </EntityType>
+        <EntityContainer Name="BeltoneFixDbModelStoreContainer">
+          <EntitySet Name="Logins" EntityType="Self.Logins" Schema="dbo" store:Type="Tables" />
+          <EntitySet Name="Sessions" EntityType="Self.Sessions" Schema="dbo" store:Type="Tables" />
+          <EntitySet Name="SessionsHistory" EntityType="Self.SessionsHistory" Schema="dbo" store:Type="Tables" />
+        </EntityContainer>
+      </Schema></edmx:StorageModels>
+    <!-- CSDL content -->
+    <edmx:ConceptualModels>
+      <Schema Namespace="Beltone.FixDbModel" Alias="Self" xmlns:annotation="http://schemas.microsoft.com/ado/2009/02/edm/annotation" xmlns="http://schemas.microsoft.com/ado/2008/09/edm">
+        <EntityContainer Name="FixDbEntities" annotation:LazyLoadingEnabled="true">
+          <EntitySet Name="Logins" EntityType="Beltone.FixDbModel.Login" />
+          <EntitySet Name="SessionsHistories" EntityType="Beltone.FixDbModel.SessionsHistory" />
+          <EntitySet Name="Sessions" EntityType="Beltone.FixDbModel.Session" />
+          </EntityContainer>
+        <EntityType Name="Login">
+          <Key>
+            <PropertyRef Name="UserName" />
+          </Key>
+          <Property Name="UserName" Type="String" Nullable="false" MaxLength="20" Unicode="true" FixedLength="false" />
+          <Property Name="Password" Type="String" Nullable="false" MaxLength="20" Unicode="true" FixedLength="false" />
+          <Property Name="CanReplicate" Type="Boolean" Nullable="false" />
+          <Property Name="CanPlaceOrder" Type="Boolean" Nullable="false" />
+        </EntityType>
+        <EntityType Name="SessionsHistory">
+          <Key>
+            <PropertyRef Name="RecordID" />
+          </Key>
+          <Property Name="RecordID" Type="Int64" Nullable="false" annotation:StoreGeneratedPattern="Identity" />
+          <Property Name="SessionKey" Type="Guid" Nullable="false" />
+          <Property Name="RequestType" Type="String" Nullable="false" MaxLength="15" FixedLength="false" Unicode="true" />
+          <Property Name="UserName" Type="String" MaxLength="20" FixedLength="false" Unicode="true" />
+          <Property Name="Password" Type="String" MaxLength="20" FixedLength="false" Unicode="true" />
+          <Property Name="QueueIP" Type="String" MaxLength="15" FixedLength="false" Unicode="true" />
+          <Property Name="QueueName" Type="String" MaxLength="50" FixedLength="false" Unicode="true" />
+          <Property Name="QueuePath" Type="String" MaxLength="100" FixedLength="false" Unicode="true" />
+          <Property Name="ConnectionDateTime" Type="DateTime" Nullable="false" Precision="3" />
+          <Property Name="IsTestRequested" Type="Boolean" Nullable="false" />
+          <Property Name="TestReqDateTime" Type="DateTime" Precision="3" />
+          <Property Name="ReqTestKey" Type="String" MaxLength="50" FixedLength="false" Unicode="true" />
+          <Property Name="IsTestResponded" Type="Boolean" Nullable="false" />
+          <Property Name="TestResDateTime" Type="DateTime" Precision="3" />
+          <Property Name="ResTestKey" Type="String" MaxLength="50" FixedLength="false" Unicode="true" />
+          <Property Name="IsValidTestKey" Type="Boolean" Nullable="false" />
+          <Property Name="RequestedSubscription" Type="Boolean" Nullable="false" />
+          <Property Name="IsOnline" Type="Boolean" Nullable="false" />
+          <Property Name="IsSubscribed" Type="Boolean" Nullable="false" />
+          <Property Name="SubscriptionDateTimeString" Type="String" MaxLength="10" FixedLength="false" Unicode="true" />
+          <Property Name="SubscriptionDateTime" Type="DateTime" Precision="3" />
+          <Property Name="Note" Type="String" MaxLength="100" FixedLength="false" Unicode="true" />
+          <Property Name="ErrCode" Type="String" MaxLength="10" FixedLength="false" Unicode="true" />
+          <Property Name="ErrMsg" Type="String" MaxLength="100" FixedLength="false" Unicode="true" />
+          <Property Name="IsUnsubscribed" Type="Boolean" Nullable="false" />
+          <Property Name="UnsubscriptionDateTime0" Type="DateTime" Precision="3" />
+          <Property Name="NewQueue" Type="Boolean" Nullable="false" />
+          <Property Name="FlushUpdatesOffline" Type="Boolean" Nullable="false" />
+          <Property Name="IsSessionFaulted" Type="Boolean" Nullable="false" />
+          <Property Name="SessionFaultDateTime" Type="DateTime" Precision="3" />
+          <Property Name="ResubSessionKey" Type="Guid" />
+        </EntityType>
+        <EntityType Name="Session">
+          <Key>
+            <PropertyRef Name="RecordID" />
+          </Key>
+          <Property Name="RecordID" Type="Int64" Nullable="false" annotation:StoreGeneratedPattern="Identity" />
+          <Property Name="RequestType" Type="String" Nullable="false" MaxLength="15" FixedLength="false" Unicode="true" />
+          <Property Name="SessionKey" Type="Guid" Nullable="false" />
+          <Property Name="UserName" Type="String" MaxLength="20" FixedLength="false" Unicode="true" />
+          <Property Name="Password" Type="String" MaxLength="20" FixedLength="false" Unicode="true" />
+          <Property Name="QueueIP" Type="String" MaxLength="15" FixedLength="false" Unicode="true" />
+          <Property Name="QueueName" Type="String" MaxLength="50" FixedLength="false" Unicode="true" />
+          <Property Name="QueuePath" Type="String" MaxLength="100" FixedLength="false" Unicode="true" />
+          <Property Name="ConnectionDateTime" Type="DateTime" Nullable="false" Precision="3" />
+          <Property Name="IsTestRequested" Type="Boolean" Nullable="false" />
+          <Property Name="TestReqDateTime" Type="DateTime" Precision="3" />
+          <Property Name="ReqTestKey" Type="String" MaxLength="50" FixedLength="false" Unicode="true" />
+          <Property Name="IsTestResponded" Type="Boolean" Nullable="false" />
+          <Property Name="TestResDateTime" Type="DateTime" Precision="3" />
+          <Property Name="ResTestKey" Type="String" MaxLength="50" FixedLength="false" Unicode="true" />
+          <Property Name="IsValidTestKey" Type="Boolean" Nullable="false" />
+          <Property Name="RequestedSubscription" Type="Boolean" Nullable="false" />
+          <Property Name="IsOnline" Type="Boolean" Nullable="false" />
+          <Property Name="IsSubscribed" Type="Boolean" Nullable="false" />
+          <Property Name="SubscriptionDateTimeString" Type="String" MaxLength="10" FixedLength="false" Unicode="true" />
+          <Property Name="SubscriptionDateTime" Type="DateTime" Precision="3" />
+          <Property Name="Note" Type="String" MaxLength="100" FixedLength="false" Unicode="true" />
+          <Property Name="ErrCode" Type="String" MaxLength="10" FixedLength="false" Unicode="true" />
+          <Property Name="ErrMsg" Type="String" MaxLength="100" FixedLength="false" Unicode="true" />
+          <Property Name="IsUnsubscribed" Type="Boolean" Nullable="false" />
+          <Property Name="UnsubscriptionDateTime0" Type="DateTime" Precision="3" />
+          <Property Name="NewQueue" Type="Boolean" Nullable="false" />
+          <Property Name="FlushUpdatesOffline" Type="Boolean" Nullable="false" />
+          <Property Name="IsSessionFaulted" Type="Boolean" Nullable="false" />
+          <Property Name="SessionFaultDateTime" Type="DateTime" Precision="3" />
+          <Property Name="ResubSessionKey" Type="Guid" />
+        </EntityType>
+        </Schema>
+    </edmx:ConceptualModels>
+    <!-- C-S mapping content -->
+    <edmx:Mappings>
+      <Mapping Space="C-S" xmlns="http://schemas.microsoft.com/ado/2008/09/mapping/cs">
+        <EntityContainerMapping StorageEntityContainer="BeltoneFixDbModelStoreContainer" CdmEntityContainer="FixDbEntities">
+          <EntitySetMapping Name="Logins">
+            <EntityTypeMapping TypeName="Beltone.FixDbModel.Login">
+              <MappingFragment StoreEntitySet="Logins">
+                <ScalarProperty Name="UserName" ColumnName="UserName" />
+                <ScalarProperty Name="Password" ColumnName="Password" />
+                <ScalarProperty Name="CanReplicate" ColumnName="CanReplicate" />
+                <ScalarProperty Name="CanPlaceOrder" ColumnName="CanPlaceOrder" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <EntitySetMapping Name="SessionsHistories">
+            <EntityTypeMapping TypeName="Beltone.FixDbModel.SessionsHistory">
+              <MappingFragment StoreEntitySet="SessionsHistory">
+                <ScalarProperty Name="ResubSessionKey" ColumnName="ResubSessionKey" />
+                <ScalarProperty Name="SessionFaultDateTime" ColumnName="SessionFaultDateTime" />
+                <ScalarProperty Name="IsSessionFaulted" ColumnName="IsSessionFaulted" />
+                <ScalarProperty Name="FlushUpdatesOffline" ColumnName="FlushUpdatesOffline" />
+                <ScalarProperty Name="NewQueue" ColumnName="NewQueue" />
+                <ScalarProperty Name="UnsubscriptionDateTime0" ColumnName="UnsubscriptionDateTime0" />
+                <ScalarProperty Name="IsUnsubscribed" ColumnName="IsUnsubscribed" />
+                <ScalarProperty Name="ErrMsg" ColumnName="ErrMsg" />
+                <ScalarProperty Name="ErrCode" ColumnName="ErrCode" />
+                <ScalarProperty Name="Note" ColumnName="Note" />
+                <ScalarProperty Name="SubscriptionDateTime" ColumnName="SubscriptionDateTime" />
+                <ScalarProperty Name="SubscriptionDateTimeString" ColumnName="SubscriptionDateTimeString" />
+                <ScalarProperty Name="IsSubscribed" ColumnName="IsSubscribed" />
+                <ScalarProperty Name="IsOnline" ColumnName="IsOnline" />
+                <ScalarProperty Name="RequestedSubscription" ColumnName="RequestedSubscription" />
+                <ScalarProperty Name="IsValidTestKey" ColumnName="IsValidTestKey" />
+                <ScalarProperty Name="ResTestKey" ColumnName="ResTestKey" />
+                <ScalarProperty Name="TestResDateTime" ColumnName="TestResDateTime" />
+                <ScalarProperty Name="IsTestResponded" ColumnName="IsTestResponded" />
+                <ScalarProperty Name="ReqTestKey" ColumnName="ReqTestKey" />
+                <ScalarProperty Name="TestReqDateTime" ColumnName="TestReqDateTime" />
+                <ScalarProperty Name="IsTestRequested" ColumnName="IsTestRequested" />
+                <ScalarProperty Name="ConnectionDateTime" ColumnName="ConnectionDateTime" />
+                <ScalarProperty Name="QueuePath" ColumnName="QueuePath" />
+                <ScalarProperty Name="QueueName" ColumnName="QueueName" />
+                <ScalarProperty Name="QueueIP" ColumnName="QueueIP" />
+                <ScalarProperty Name="Password" ColumnName="Password" />
+                <ScalarProperty Name="UserName" ColumnName="UserName" />
+                <ScalarProperty Name="RequestType" ColumnName="RequestType" />
+                <ScalarProperty Name="SessionKey" ColumnName="SessionKey" />
+                <ScalarProperty Name="RecordID" ColumnName="RecordID" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <EntitySetMapping Name="Sessions">
+            <EntityTypeMapping TypeName="Beltone.FixDbModel.Session">
+              <MappingFragment StoreEntitySet="Sessions">
+                <ScalarProperty Name="ResubSessionKey" ColumnName="ResubSessionKey" />
+                <ScalarProperty Name="SessionFaultDateTime" ColumnName="SessionFaultDateTime" />
+                <ScalarProperty Name="IsSessionFaulted" ColumnName="IsSessionFaulted" />
+                <ScalarProperty Name="FlushUpdatesOffline" ColumnName="FlushUpdatesOffline" />
+                <ScalarProperty Name="NewQueue" ColumnName="NewQueue" />
+                <ScalarProperty Name="UnsubscriptionDateTime0" ColumnName="UnsubscriptionDateTime0" />
+                <ScalarProperty Name="IsUnsubscribed" ColumnName="IsUnsubscribed" />
+                <ScalarProperty Name="ErrMsg" ColumnName="ErrMsg" />
+                <ScalarProperty Name="ErrCode" ColumnName="ErrCode" />
+                <ScalarProperty Name="Note" ColumnName="Note" />
+                <ScalarProperty Name="SubscriptionDateTime" ColumnName="SubscriptionDateTime" />
+                <ScalarProperty Name="SubscriptionDateTimeString" ColumnName="SubscriptionDateTimeString" />
+                <ScalarProperty Name="IsSubscribed" ColumnName="IsSubscribed" />
+                <ScalarProperty Name="IsOnline" ColumnName="IsOnline" />
+                <ScalarProperty Name="RequestedSubscription" ColumnName="RequestedSubscription" />
+                <ScalarProperty Name="IsValidTestKey" ColumnName="IsValidTestKey" />
+                <ScalarProperty Name="ResTestKey" ColumnName="ResTestKey" />
+                <ScalarProperty Name="TestResDateTime" ColumnName="TestResDateTime" />
+                <ScalarProperty Name="IsTestResponded" ColumnName="IsTestResponded" />
+                <ScalarProperty Name="ReqTestKey" ColumnName="ReqTestKey" />
+                <ScalarProperty Name="TestReqDateTime" ColumnName="TestReqDateTime" />
+                <ScalarProperty Name="IsTestRequested" ColumnName="IsTestRequested" />
+                <ScalarProperty Name="ConnectionDateTime" ColumnName="ConnectionDateTime" />
+                <ScalarProperty Name="QueuePath" ColumnName="QueuePath" />
+                <ScalarProperty Name="QueueName" ColumnName="QueueName" />
+                <ScalarProperty Name="QueueIP" ColumnName="QueueIP" />
+                <ScalarProperty Name="Password" ColumnName="Password" />
+                <ScalarProperty Name="UserName" ColumnName="UserName" />
+                <ScalarProperty Name="SessionKey" ColumnName="SessionKey" />
+                <ScalarProperty Name="RequestType" ColumnName="RequestType" />
+                <ScalarProperty Name="RecordID" ColumnName="RecordID" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+        </EntityContainerMapping>
+      </Mapping>
+    </edmx:Mappings>
+  </edmx:Runtime>
+  <!-- EF Designer content (DO NOT EDIT MANUALLY BELOW HERE) -->
+  <Designer xmlns="http://schemas.microsoft.com/ado/2008/10/edmx">
+    <Connection>
+      <DesignerInfoPropertySet>
+        <DesignerProperty Name="MetadataArtifactProcessing" Value="EmbedInOutputAssembly" />
+      </DesignerInfoPropertySet>
+    </Connection>
+    <Options>
+      <DesignerInfoPropertySet>
+        <DesignerProperty Name="ValidateOnBuild" Value="true" />
+        <DesignerProperty Name="EnablePluralization" Value="True" />
+        <DesignerProperty Name="IncludeForeignKeysInModel" Value="True" />
+        <DesignerProperty Name="CodeGenerationStrategy" Value="None" />
+        <DesignerProperty Name="UseLegacyProvider" Value="True" />
+      </DesignerInfoPropertySet>
+    </Options>
+    <!-- Diagram content (shape and connector positions) -->
+    <Diagrams></Diagrams>
+  </Designer>
+</edmx:Edmx>

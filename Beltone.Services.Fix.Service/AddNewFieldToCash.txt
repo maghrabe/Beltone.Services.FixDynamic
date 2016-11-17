@@ -1,0 +1,25 @@
+﻿Steps to add new feild to Orders table and OrderSingle object :
+===============================================================
+1- Add new column to Orders table in database.
+2- add new columnt to app.config in section "PropertiesColumnsSchema" at " <PropertiesColumnsSchemaList>" as below.
+
+  <PropertiesColumnsSchema>
+    <!--when u add some item then take into your account that this item should be added to SingleOrderProperties class too-->
+    <PropertiesColumnsSchemaList>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrderID" ColumnName="OrderID" PropertyType="System.Long" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ClOrderID" ColumnName="ClOrderID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrigClOrdID" ColumnName="OrigClOrdID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="BourseOrderID" ColumnName="BourseOrderID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+    <PropertiesColumnsSchemaList>
+  <PropertiesColumnsSchema>
+
+  3- Add new field to SingleOrderProperties class (located in project "Beltone.Services.Fix.Entities"  under class name Constants.cs)
+    
+    public static class SingleOrderProperties
+    {
+        public const string TableName = "Orders";
+        public const string OrderID = "OrderID";
+        public const string ClOrderID = "ClOrderID";
+		......
+		...........
+	}

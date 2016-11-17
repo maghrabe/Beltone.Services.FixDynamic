@@ -1,0 +1,1545 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using Beltone.Services.Fix.Utilities;
+using Beltone.Services.Fix.Service.Singletons;
+using Beltone.Services.Fix.Contract;
+using Beltone.Services.Fix.Contract.Entities.ResponseMessages;
+using Beltone.Services.Fix.Contract.Interfaces;
+using Beltone.Services.Fix.DataLayer;
+using Beltone.Services.Fix.Entities.Entities;
+using Beltone.Services.Fix.Entities.Constants;
+using Beltone.Services.Fix.Contract.Entities;
+using Beltone.Services.Fix.Entities.Configurations;
+
+namespace Beltone.Services.Fix.Service.Handlers.ResponseMessagesHandlers
+{
+    public class ExecutionReportResponseMessageHandler : IResponseMessageHandler<QuickFix.Message>
+    {
+
+        private static int m_msgTypeTag;
+        private static string m_MsgTypeTagValueToHandle;
+
+        #region IResponseMessageHandler<IResponseMessage> Members
+
+        public void Initialize(string msgTypeTagValueToHandle)
+        {
+            m_MsgTypeTagValueToHandle = msgTypeTagValueToHandle;
+            m_msgTypeTag = int.Parse(SystemConfigurations.GetAppSetting("MsgTypeTag"));
+        }
+
+
+        public void Handle(QuickFix.Message msg)
+        {
+
+            try
+            {
+                // check message type tag, if execution report then push execution report update
+                string msgTypeString = msg.getHeader().getField(m_msgTypeTag);
+                if (msgTypeString == m_MsgTypeTagValueToHandle)
+                {
+                    Counters.IncrementCounter(CountersConstants.RcvExecRspMsgs);
+                    //System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+                    //sw.Start();
+
+                    SingleOrder order = null;
+                    //SystemLogger.WriteOnConsole(true, string.Format("new fix message recieved {0} {1} Type: {2}, Message: '{3}'", Environment.NewLine, Environment.NewLine, "Execution Report", msg.ToXML()), ConsoleColor.Green, ConsoleColor.Black, false);
+
+                    // check of this execution already handled
+                    string execID = msg.getField(17); //ExecID
+                    if (OrdersManager.HasExecutionID(execID))
+                    {
+                        return;
+                    }
+
+                    // this execution not handled then mark as handled
+                    OrdersManager.AddExecutionID(execID);
+
+                    // find the order 
+                    if (msg.isSetField(11))
+                    {
+                        long orderID = long.Parse(msg.getField(11).Split(new char[] { '-' })[0]);
+                        try
+                        {
+                            order = OrdersManager.GetOrder(orderID);
+                        }
+                        catch (Exception ex) // order not found
+                        {
+                            string bourseOrderID = msg.getField(37);
+                            order = OrdersManager.GetOrder(bourseOrderID);
+                            if (order == null)
+                            {
+                                SystemLogger.WriteOnConsoleAsync(true, string.Format("order BourseOrderID {0} not found !", bourseOrderID), ConsoleColor.Red, ConsoleColor.Black, true);
+                                return;
+                            }
+                            return;
+                        }
+                    }
+                    else if (msg.isSetField(37))
+                    {
+                        string bourseOrderID = msg.getField(37);
+                        order = OrdersManager.GetOrder(bourseOrderID);
+                        if (order == null)
+                        {
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("order BourseOrderID {0} not found !", bourseOrderID), ConsoleColor.Red, ConsoleColor.Black, true);
+                            return;
+                        }
+                    }
+
+
+                    Guid requesterOrderID = (Guid)order.Data[SingleOrderProperties.RequesterOrderID];
+                    // find subscribed callbacks
+                    List<Guid> clientKeys = OrdersManager.GetOrderCallbackIDs((long)order.Data[SingleOrderProperties.OrderID]);
+                    // There can be exceptions to this rule when ExecType <150> and/or OrdStatus <39> are Canceled, 
+                    // DoneForTheDay (e.g. on a day order), Expired, Calculated, or Rejected in which case 
+                    // the order is no longer active and LeavesQty <151> could be 0. 
+                    //long seqNo = long.Parse(msg.getHeader().getField(34));
+
+                    string execTypeFixValue = msg.getField(150);
+                    LookupItem lookupExecType = Lookups.GetExecTypeLookup(execTypeFixValue);
+                    string ExecType = lookupExecType.CodeValue;
+                    string orderStatusFixValue = msg.getField(39);
+                    LookupItem lookupOrderStatus = Lookups.GetExecTypeLookup(orderStatusFixValue);
+                    string orderStatus = lookupOrderStatus.CodeValue;
+
+
+                    int totalExecQ = msg.getInt(14);
+                    int remQ = msg.getInt(151);
+                    int thisTradeExecQ = msg.getInt(32);
+                    if (thisTradeExecQ == 0) { thisTradeExecQ = order.Data[SingleOrderProperties.LastExecQuantity] == null ? 0 : (int)order.Data[SingleOrderProperties.LastExecQuantity]; }
+                    int currQ = 0; if (msg.isSetField(38)) { currQ = msg.getInt(38); }
+                    if (currQ == 0) { currQ = (int)order.Data[SingleOrderProperties.CurrentQuantity]; }
+
+
+                    double price = 0;
+                    if (msg.isSetField(44)) { price = double.Parse(msg.getField(44)); }
+                    if (price == 0) { price = (double)order.Data[SingleOrderProperties.CurrentPrice]; }
+                    double execPrice = msg.getDouble(31);
+                    if (execPrice == 0) { execPrice = order.Data[SingleOrderProperties.LastExecPrice] == null ? 0 : Convert.ToDouble(order.Data[SingleOrderProperties.LastExecPrice].ToString()); }
+                    double avgPrice = msg.getDouble(6);
+                    //if (avgPrice == 0) { avgPrice = (double)order.Data[SingleOrderProperties.AvgPrice]; }
+
+
+                    //string orderSide = msg.getField(54);
+                    string bourseOrdID = string.Empty;
+                    //string orderTypeFixCode = string.Empty;
+                    string orderType = string.Empty;
+                    string reason = string.Empty;
+                    string timeInForce = string.Empty;
+                    Nullable<DateTime> transactionDateTime = null;
+                    Nullable<DateTime> expirationDateTime = null;
+                    Nullable<DateTime> expirationDate = null;
+
+
+                    if (msg.isSetField(40)) { orderType = Lookups.GetOrderTypeLookup(msg.getField(40)).CodeValue; } else { orderType = order.Data[SingleOrderProperties.OrderType].ToString(); }
+                    if (msg.isSetField(59)) { timeInForce = Lookups.GetTimeInForceLookup(msg.getField(59)).CodeValue; } else { timeInForce = order.Data[SingleOrderProperties.TimeInForce].ToString(); }
+                    //if (orderTypeFixCode == string.Empty) { orderTypeFixCode = order.Data[SingleOrderProperties.OrderType].ToString(); }
+                    if (msg.isSetField(37)) { bourseOrdID = msg.getField(37); }// bourse order ID 
+                    if (msg.isSetField(103))
+                    {
+                        LookupItem lkupRej = Lookups.GetRejectionReasonLookup(msg.getField(103));
+                        if (lkupRej != null)
+                        {
+                            if (msg.isSetField(103)) { reason = lkupRej.MessageEn + " "; }
+                        }
+                    }
+                    if (msg.isSetField(58)) { reason += msg.getField(58) + " "; }
+                    if (msg.isSetField(60)) { transactionDateTime = msg.getUtcTimeStamp(60); }
+                    if (msg.isSetField(126)) { expirationDateTime = msg.getUtcTimeStamp(126); }
+                    if (msg.isSetField(432)) { expirationDate = msg.getUtcTimeStamp(432); }
+
+                    //SystemLogger.WriteOnConsoleAsync(true, string.Format("Order Status : {0}, Order ID : {1}, ReqOrderID : {2}", orderStatus, order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID]), ConsoleColor.Blue, ConsoleColor.White, false);                    
+
+                    List<IResponseMessage> responses = new List<IResponseMessage>();
+
+                    #region Suspended
+
+                    if (orderStatusFixValue == "9") // suspended ==> Fix Value = 9
+                    {
+                        Counters.IncrementCounter(CountersConstants.SuspendedExecRspMsgs);
+                        try
+                        {
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_OrderSuspensionResponse() { Message = reason, RequesterOrderID = requesterOrderID, ClientKey = callbackID, OrderStatus = orderStatus });
+                            }
+
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.OriginalOrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.IsActive] = false;
+                            order.Data[SingleOrderProperties.IsPending] = false;
+                            order.Data[SingleOrderProperties.IsSuspended] = true;
+                            order.Data[SingleOrderProperties.IsExecuted] = false;
+                            order.Data[SingleOrderProperties.IsCompleted] = false;
+                            order.Data[SingleOrderProperties.Note] = ORD_STATUS.Suspended;
+                            order.Data[SingleOrderProperties.SuspensionReason] = reason;
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OriginalOrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsActive).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsSuspended).ColumnName, true);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsPending).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsCompleted).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsExecuted).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, ORD_STATUS.Suspended);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.SuspensionReason).ColumnName, reason);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, ORD_STATUS.Suspended);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.SuspensionReason).ColumnName, reason);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-Suspended Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+                    #endregion Suspended
+
+                    #region PendingNew
+
+                    else if (orderStatusFixValue == "A" && execTypeFixValue == "A") // new ==> FixValue = 0
+                    {
+                        Counters.IncrementCounter(CountersConstants.NewExecRspMsgs);
+                        try
+                        {
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_PendingNewResponse() { RequesterOrderID = requesterOrderID, ClientKey = callbackID, OrderStatus = orderStatus });
+                            }
+
+
+                            if (bourseOrdID != string.Empty && !bourseOrdID.ToLower().Contains("none")) { order.Data[SingleOrderProperties.BourseOrderID] = bourseOrdID; }
+
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.OriginalOrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.OrigClOrdID] = order.Data[SingleOrderProperties.ClOrderID];
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.IsActive] = false;
+                            order.Data[SingleOrderProperties.IsPending] = true;
+                            order.Data[SingleOrderProperties.Note] = "Pending New";
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+                            order.Data[SingleOrderProperties.OrderConfirmDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OriginalOrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsActive).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, "Pending New");
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsPending).ColumnName, true);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsAcceptedByBourse).ColumnName, false);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderConfirmDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, "Pending New");
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsNewOrderResponse).ColumnName, false);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+
+
+
+                            if (!string.IsNullOrEmpty((string)order.Data[SingleOrderProperties.BourseOrderID]))
+                            {
+                                db.UpdateBourseOrderID((long)order.Data[SingleOrderProperties.OrderID], (string)order.Data[SingleOrderProperties.BourseOrderID]);
+                            }
+                            ////////db.UpdateOrderDetails(order.OrderID, order.ClOrderID, order.OrigClOrdID, currQ == 0 ? order.CurrentQuantity : currQ, remQ, exeQ, price == 0 ? order.CurrentPrice : price, execPrice, avgPrice, Lookups.GetOrderTypeLookup(orderType).CodeValue, Lookups.GetOrderStatusLookup(status).CodeValue, Lookups.GetExecTypeLookup(exeType).CodeValue, DateTime.Now, "Order has been accepted", false, "", timeInForce == string.Empty ? order.TimeInForce : Lookups.GetTimeInForceLookup(timeInForce).CodeValue, execID);
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-PendingNew Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+                    #endregion New
+
+                    #region New
+
+                    else if (orderStatusFixValue == "0" && execTypeFixValue == "0") // new ==> FixValue = 0
+                    {
+                        Counters.IncrementCounter(CountersConstants.NewExecRspMsgs);
+                        try
+                        {
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_OrderAcceptedResponse() { Message = lookupOrderStatus.CodeValue, RequesterOrderID = requesterOrderID, ClientKey = callbackID, OrderStatus = orderStatus, CurrentQty = currQ, CurrPrice = price });
+                            }
+
+
+                            if (bourseOrdID != string.Empty && !bourseOrdID.ToLower().Contains("none")) { order.Data[SingleOrderProperties.BourseOrderID] = bourseOrdID; }
+
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.OriginalOrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.OrigClOrdID] = order.Data[SingleOrderProperties.ClOrderID];
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.OriginalPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.OriginalQuantity] = currQ;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.IsActive] = true;
+                            order.Data[SingleOrderProperties.IsPending] = false;
+                            order.Data[SingleOrderProperties.Note] = "Order has been accepted";
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+                            order.Data[SingleOrderProperties.OrderConfirmDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OriginalOrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsActive).ColumnName, true);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, "Order has been accepted");
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsPending).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsAcceptedByBourse).ColumnName, true);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderConfirmDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, "Order has been accepted");
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsNewOrderResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+
+
+
+                            if (!string.IsNullOrEmpty((string)order.Data[SingleOrderProperties.BourseOrderID]))
+                            {
+                                db.UpdateBourseOrderID((long)order.Data[SingleOrderProperties.OrderID], (string)order.Data[SingleOrderProperties.BourseOrderID]);
+                            }
+                            ////////db.UpdateOrderDetails(order.OrderID, order.ClOrderID, order.OrigClOrdID, currQ == 0 ? order.CurrentQuantity : currQ, remQ, exeQ, price == 0 ? order.CurrentPrice : price, execPrice, avgPrice, Lookups.GetOrderTypeLookup(orderType).CodeValue, Lookups.GetOrderStatusLookup(status).CodeValue, Lookups.GetExecTypeLookup(exeType).CodeValue, DateTime.Now, "Order has been accepted", false, "", timeInForce == string.Empty ? order.TimeInForce : Lookups.GetTimeInForceLookup(timeInForce).CodeValue, execID);
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-New Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+                    #endregion New
+
+                    #region Filled this condition should be placed before PartialFilled status
+
+                    else if (orderStatusFixValue == "2" && execTypeFixValue == "2" ||
+                        orderStatusFixValue == "2" && execTypeFixValue == "F") // filled ==> FixValue = 2
+                    {
+                        Counters.IncrementCounter(CountersConstants.FilledExecRspMsgs);
+
+                        try
+                        {
+
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_ExecutionReport() { RequesterOrderID = requesterOrderID, CurrentQty = currQ, CurrPrice = price, OrderStatus = lookupOrderStatus.CodeValue, TotalExecutedQuantity = totalExecQ, RemainingQuantity = remQ, TradeExecutedQuantity = thisTradeExecQ, AvgPrice = avgPrice, ExecPrice = execPrice, ClientKey = callbackID, IsActive = false, IsCompleted = true, IsExecuted = true });
+                            }
+
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.OriginalOrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.IsActive] = false;
+                            order.Data[SingleOrderProperties.IsExecuted] = true;
+                            order.Data[SingleOrderProperties.IsCompleted] = true;
+                            order.Data[SingleOrderProperties.Note] = "Order Filled";
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OriginalOrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsActive).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsExecuted).ColumnName, true);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsCompleted).ColumnName, true);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, "Order Filled");
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderConfirmDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, "Order Filled");
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-Filled Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+
+                    #endregion Filled
+
+                    #region PartialFilled
+
+                    else if (orderStatusFixValue == "1" && execTypeFixValue == "1" ||
+                        orderStatusFixValue == "1" && execTypeFixValue == "F") // partially filled ==> FixValue = 1
+                    {
+                        Counters.IncrementCounter(CountersConstants.PartialFilledExecRspMsgs);
+                        try
+                        {
+
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_ExecutionReport() { RequesterOrderID = requesterOrderID, CurrentQty = currQ, CurrPrice = price, OrderStatus = lookupOrderStatus.CodeValue, TotalExecutedQuantity = totalExecQ, RemainingQuantity = remQ, TradeExecutedQuantity = thisTradeExecQ, ClientKey = callbackID, IsActive = true, IsCompleted = false, IsExecuted = false, AvgPrice = avgPrice, ExecPrice = execPrice });
+                            }
+
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.OriginalOrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.IsActive] = true;
+                            order.Data[SingleOrderProperties.IsExecuted] = false;
+                            order.Data[SingleOrderProperties.Note] = "Order Patially Filled";
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OriginalOrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsActive).ColumnName, true);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsExecuted).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, "Order Partially Filled");
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderConfirmDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, "Order Partially Filled");
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-PartialFilled Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+                    #endregion PartialFilled
+
+                    #region Replaced
+
+                    else if (orderStatusFixValue == "5" && execTypeFixValue == "5"
+                        || orderStatusFixValue == "0" && execTypeFixValue == "5") // replaced ==> FixValue = 5
+                    {
+                        Counters.IncrementCounter(CountersConstants.ReplacedExecRspMsgs);
+                        try
+                        {
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_OrderReplacedResponse() { RequesterOrderID = requesterOrderID, OrderStatus = orderStatus, ExecutedQuantity = totalExecQ, ClientKey = callbackID, Price = price, Quantity = currQ, RemainingQuantity = remQ, OrderType = orderType, TimeInForce = timeInForce, OrderSide = order.Data[SingleOrderProperties.OrderSide].ToString() });
+                            }
+
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.OriginalOrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.OrigClOrdID] = order.Data[SingleOrderProperties.ClOrderID];
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.IsActive] = true;
+                            order.Data[SingleOrderProperties.IsExecuted] = false;
+                            order.Data[SingleOrderProperties.IsPending] = false;
+                            order.Data[SingleOrderProperties.Note] = "Bourse accepted order modifications";
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OriginalOrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsActive).ColumnName, true);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsExecuted).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsPending).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, "Bourse accepted order modifications");
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            //orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderConfirmDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, "Bourse accepted order modifications");
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsModifyResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+
+                            db = null;
+
+
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-Replaced Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+                    #endregion Replaced
+
+                    #region Rejected
+
+                    else if (orderStatusFixValue == "8" || execTypeFixValue == "8") // Rejected ==> FixValue = 8 
+                    {
+                        Counters.IncrementCounter(CountersConstants.RejectedExecRspMsgs);
+                        try
+                        {
+
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_OrderRejectionResponse() { RejectionReason = reason, RequesterOrderID = requesterOrderID, ClientKey = callbackID, OrderStatus = orderStatus });
+                            }
+
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.OriginalOrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.IsActive] = false;
+                            order.Data[SingleOrderProperties.IsPending] = false;
+                            order.Data[SingleOrderProperties.IsRejected] = true;
+                            order.Data[SingleOrderProperties.Note] = "Order has been rejected";
+                            order.Data[SingleOrderProperties.RejectionReason] = reason;
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OriginalOrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsActive).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsRejected).ColumnName, true);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, "Order has been rejected");
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RejectionReason).ColumnName, reason);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsAcceptedByBourse).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsPending).ColumnName, false);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, "Order has been rejected");
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RejectionReason).ColumnName, reason);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsNewOrderResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-Rejected Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+                    #endregion Rejected
+
+                    #region PendingReplace
+
+                    else if (orderStatusFixValue == "E" || execTypeFixValue == "E") // Pending Replace ==> FixValue = 8 
+                    {
+                        Counters.IncrementCounter(CountersConstants.PendingReplaceExecRspMsgs);
+
+                        try
+                        {
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_PendingReplaceResponse() { RequesterOrderID = requesterOrderID, ClientKey = callbackID, OrderStatus = ORD_STATUS.PendingReplace });
+                            }
+
+
+                            // dont change OriginalOrderStatus in pending conditions
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.IsPending] = true;
+                            order.Data[SingleOrderProperties.Note] = "Pending Replace";
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, "Pending Replace");
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsPending).ColumnName, true);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderConfirmDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, "Pending Replace");
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsModifyResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-PendingReplace Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+                    #endregion PendingReplace
+
+                    #region PendingCancel
+
+                    else if (orderStatusFixValue == "6" || execTypeFixValue == "6") // Pending Cancel ==> FixValue = 8 
+                    {
+                        Counters.IncrementCounter(CountersConstants.PendingCancelExecRspMsgs);
+                        try
+                        {
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_PendingCancelResponse() { RequesterOrderID = requesterOrderID, ClientKey = callbackID, OrderStatus = ORD_STATUS.PendingCancel });
+                            }
+
+                            // dont change OriginalOrderStatus in pending conditions
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.IsPending] = true;
+                            order.Data[SingleOrderProperties.Note] = "Pending Cancel";
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, "Pending Cancel");
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsPending).ColumnName, true);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderConfirmDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, "Pending Cancel");
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsCancelResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-PendingCancel Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+                    #endregion PendingCancel
+
+                    #region Canceled
+
+                    else if (orderStatusFixValue == "4" || execTypeFixValue == "4" ||
+                        orderStatusFixValue == "3" || execTypeFixValue == "4") // >> Done For Day
+                    {
+                        Counters.IncrementCounter(CountersConstants.CanceledExecRspMsgs);
+                        try
+                        {
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_OrderCanceledResponse() { RequesterOrderID = requesterOrderID, ClientKey = callbackID, Message = reason, OrderStatus = orderStatus });
+                            }
+
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.OriginalOrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.OrigClOrdID] = order.Data[SingleOrderProperties.ClOrderID];
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.IsActive] = false;
+                            order.Data[SingleOrderProperties.IsPending] = false;
+                            order.Data[SingleOrderProperties.IsCanceled] = true;
+                            order.Data[SingleOrderProperties.Note] = "Order Canceled";
+                            order.Data[SingleOrderProperties.CancellationReason] = reason;
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OriginalOrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsActive).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsCanceled).ColumnName, true);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsPending).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, "Order Canceled");
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CancellationReason).ColumnName, reason);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, "Order Canceled");
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CancellationReason).ColumnName, reason);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsCancelResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-Canceled Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+
+
+                    #endregion
+
+                    #region Expired
+
+                    else if (orderStatusFixValue == "C" || execTypeFixValue == "C") // Expired ==> FixValue = 8 
+                    {
+                        Counters.IncrementCounter(CountersConstants.ExpiredExecRspMsgs);
+                        try
+                        {
+
+                            foreach (Guid callbackID in clientKeys)
+                            {
+                                responses.Add(new Fix_OrderExpiredResponse() { RequesterOrderID = requesterOrderID, ClientKey = callbackID, Message = "Expired Order " + reason });
+                            }
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.OriginalOrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.IsActive] = false;
+                            order.Data[SingleOrderProperties.IsExpired] = true;
+                            order.Data[SingleOrderProperties.Note] = "Order Expired  " + reason;
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OriginalOrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsActive).ColumnName, false);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.IsExpired).ColumnName, true);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note).ColumnName, "Order Expired " + reason);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note).ColumnName, "Order Expired " + reason);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Execution-Expired Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+                    #endregion
+
+                    #region Unhandled Execution
+                    else // unhandled execution message
+                    {
+                        try
+                        {
+
+                            Counters.IncrementCounter(CountersConstants.UnhandledExecRspMsgs);
+                            // avoid displaying warning messages for pending responces, Ex: PendingNew, PendingCancel, ...
+                            if (!lookupOrderStatus.CodeValue.ToLower().Contains("pending"))
+                            {
+                                SystemLogger.WriteOnConsoleAsync(true, string.Format("Warning !!!!!!!!  Unhandled execution report, Order ID {0}, ReqOrderID {1}, Status : {2}, Execution Type : {3}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], orderStatus, ExecType), ConsoleColor.Yellow, ConsoleColor.Red, true);
+                            }
+                            // you dont want the client to miss some update so do the following:
+                            // compare executed quantities
+                            // check if order status or exec type is partially filled or filled then send the client the exec report response
+
+                            if (
+                                    (orderStatus == "2" && (int)order.Data[SingleOrderProperties.ExecutedQuantity] != (int)totalExecQ) ||
+                                    (ExecType == "2" && (int)order.Data[SingleOrderProperties.ExecutedQuantity] != (int)totalExecQ) ||
+                                    (orderStatus == "1" && (int)order.Data[SingleOrderProperties.ExecutedQuantity] != (int)totalExecQ) ||
+                                    (ExecType == "1" && (int)order.Data[SingleOrderProperties.ExecutedQuantity] != (int)totalExecQ)
+                               )
+                            {
+
+
+                                foreach (Guid callbackID in clientKeys)
+                                {
+                                    responses.Add(new Fix_ExecutionReport() { RequesterOrderID = requesterOrderID, CurrentQty = currQ, CurrPrice = price, OrderStatus = lookupOrderStatus.CodeValue, TotalExecutedQuantity = totalExecQ, RemainingQuantity = remQ, TradeExecutedQuantity = thisTradeExecQ, ClientKey = callbackID, IsActive = remQ > 0 ? true : false, IsCompleted = remQ == 0 ? true : false, IsExecuted = remQ == 0 ? true : false, AvgPrice = avgPrice, ExecPrice = execPrice });
+                                }
+                            }
+
+                            order.Data[SingleOrderProperties.OriginalOrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.OrderStatus] = orderStatus;
+                            order.Data[SingleOrderProperties.ExecType] = ExecType;
+                            order.Data[SingleOrderProperties.OrigClOrdID] = order.Data[SingleOrderProperties.ClOrderID];
+                            order.Data[SingleOrderProperties.AvgPrice] = avgPrice;
+                            order.Data[SingleOrderProperties.CurrentPrice] = price;
+                            order.Data[SingleOrderProperties.LastExecPrice] = execPrice;
+                            order.Data[SingleOrderProperties.CurrentQuantity] = currQ;
+                            order.Data[SingleOrderProperties.ExecutedQuantity] = totalExecQ;
+                            order.Data[SingleOrderProperties.LastExecQuantity] = thisTradeExecQ;
+                            order.Data[SingleOrderProperties.RemainingQuantity] = remQ;
+                            order.Data[SingleOrderProperties.Note2] = "Unhandled Message";
+                            order.Data[SingleOrderProperties.TimeInForce] = timeInForce;
+                            order.Data[SingleOrderProperties.ModifiedDateTime] = transactionDateTime == null ? DateTime.Now : transactionDateTime;
+                            order.Data[SingleOrderProperties.ExpirationDate] = expirationDate;
+                            order.Data[SingleOrderProperties.ExpirationDateTime] = expirationDateTime;
+
+                            DatabaseMethods db = new DatabaseMethods();
+
+                            Dictionary<string, object> orders_Columns = new Dictionary<string, object>();
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.AvgPrice).ColumnName, avgPrice);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentPrice).ColumnName, price);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecPrice).ColumnName, execPrice);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.CurrentQuantity).ColumnName, currQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.RemainingQuantity).ColumnName, remQ);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExecType).ColumnName, ExecType);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderStatus).ColumnName, orderStatus);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.Note2).ColumnName, "Unhandled message");
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.TimeInForce).ColumnName, timeInForce);
+
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ModifiedDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderConfirmDateTime).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            if (expirationDate != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDateTime).ColumnName, expirationDateTime); }
+                            if (expirationDateTime != null) { orders_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.ExpirationDate).ColumnName, expirationDate); }
+
+                            Dictionary<string, object> orders_Filters = new Dictionary<string, object>();
+                            orders_Filters.Add(PropColMapper.GetColumnByProperty(SingleOrderProperties.TableName, SingleOrderProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+
+                            Dictionary<string, object> ordersDetails_Columns = new Dictionary<string, object>();
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderID).ColumnName, order.Data[SingleOrderProperties.OrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ClOrderID).ColumnName, order.Data[SingleOrderProperties.ClOrderID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrigClOrdID).ColumnName, order.Data[SingleOrderProperties.OrigClOrdID]);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionID).ColumnName, execID);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionMsgType).ColumnName, msgTypeString);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.AvgPrice).ColumnName, avgPrice);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentPrice).ColumnName, price);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecPrice).ColumnName, execPrice);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.CurrentQuantity).ColumnName, currQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutedQuantity).ColumnName, totalExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.LastExecQuantity).ColumnName, thisTradeExecQ);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.RemainingQuantity).ColumnName, remQ);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecType).ColumnName, ExecType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderStatus).ColumnName, orderStatus);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.Note2).ColumnName, "Unhandled message");
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.IsResponse).ColumnName, true);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.OrderType).ColumnName, orderType);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.TimeInForce).ColumnName, timeInForce);
+
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.DateTime).ColumnName, DateTime.Now);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionDate).ColumnName, transactionDateTime == null ? DateTime.Now : transactionDateTime);
+                            ordersDetails_Columns.Add(PropColMapper.GetColumnByProperty(SingleOrderDetailsProperties.TableName, SingleOrderDetailsProperties.ExecutionRecievedDateTime).ColumnName, DateTime.Now);
+
+
+                            db.UpdateOrderDetails(orders_Columns, orders_Filters, ordersDetails_Columns);
+
+
+                            db = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                            SystemLogger.WriteOnConsoleAsync(true, string.Format("Error, Unhandled execution report, Order ID {0}, ReqOrderID {1}, Error : {2}", order.Data[SingleOrderProperties.OrderID], order.Data[SingleOrderProperties.RequesterOrderID], ex.Message), ConsoleColor.Red, ConsoleColor.Black, true);
+                        }
+                    }
+
+                    #endregion Unhandled Execution
+
+                    if (responses.Count > 0) { CallbackList.PushUpdates(responses.ToArray()); }
+
+                    //sw.Stop();
+                    //SystemLogger.WriteOnConsoleAsync(true, string.Format("exec report of type {0} handled in {1} ms ",execTypeFixValue, sw.ElapsedMilliseconds), ConsoleColor.Yellow, ConsoleColor.Black, false);
+                    //sw = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Counters.IncrementCounter(CountersConstants.ExceptionMessages);
+                SystemLogger.WriteOnConsoleAsync(true, "Execution Report Response Handler Error" + ex.Message, ConsoleColor.Red, ConsoleColor.Black, true);
+            }
+
+
+        }
+
+        #endregion
+
+        #region IDisposable Members
+
+        public void Dispose()
+        {
+            throw new NotImplementedException();
+        }
+
+        #endregion
+    }
+}

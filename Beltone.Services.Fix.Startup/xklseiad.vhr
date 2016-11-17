@@ -1,0 +1,413 @@
+<?xml version="1.0"?>
+<configuration>
+  <configSections>
+    <section name="RequestMessagesHandlers" type="Beltone.Services.Fix.Service.Handlers.RequestMessagesHandlers.RequestMessagesHandlers, Beltone.Services.Fix.Service"/>
+    <section name="ResponseMessagesHandlers" type="Beltone.Services.Fix.Service.Handlers.ResponseMessagesHandlers.ResponseMessagesHandlers, Beltone.Services.Fix.Service"/>
+    <section name="McsdResponseMessagesHandlers" type="Beltone.Services.Fix.Service.Handlers.ResponseMcsdMessagesHandlers.McsdResponseMessagesHandlers, Beltone.Services.Fix.Service"/>
+    <section name="PropertiesColumnsSchema" type="Beltone.Services.Fix.Entities.Configurations.PropertiesColumnsSchema, Beltone.Services.Fix.Entities"/>
+    <section name="dataConfiguration" type="Microsoft.Practices.EnterpriseLibrary.Data.Configuration.DatabaseSettings, Microsoft.Practices.EnterpriseLibrary.Data, Version=5.0.414.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35" requirePermission="true"/>
+    <section name="entityFramework" type="System.Data.Entity.Internal.ConfigFile.EntityFrameworkSection, EntityFramework, Version=4.4.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089" requirePermission="false"/>
+  </configSections>
+
+
+  <entityFramework>
+    <defaultConnectionFactory type="System.Data.Entity.Infrastructure.LocalDbConnectionFactory, EntityFramework">
+      <parameters>
+        <parameter value="v11.0"/>
+      </parameters>
+    </defaultConnectionFactory>
+  </entityFramework>
+  <dataConfiguration defaultDatabase="FixOrdersDBConnectionString"/>
+  
+  <RequestMessagesHandlers>
+    <RequestMessagesHandlersList>
+      <RequestMessageHandler Name="NewSingleOrder" Type="Beltone.Services.Fix.Service.Handlers.RequestMessagesHandlers.NewSingleOrderHandler"/>
+      <RequestMessageHandler Name="ModifyCancelOrder" Type="Beltone.Services.Fix.Service.Handlers.RequestMessagesHandlers.ModifyCancelOrderHandler"/>
+      <RequestMessageHandler Name="OrderCancelRequestHandler" Type="Beltone.Services.Fix.Service.Handlers.RequestMessagesHandlers.OrderCancelRequestHandler"/>
+      <RequestMessageHandler Name="OrderInfoHandler" Type="Beltone.Services.Fix.Service.Handlers.RequestMessagesHandlers.OrderInfoHandler"/>
+    </RequestMessagesHandlersList>
+  </RequestMessagesHandlers>
+  
+  <ResponseMessagesHandlers>
+    <ResponseMessagesHandlersList>
+      <ResponseMessageHandler Name="Rejection" Type="Beltone.Services.Fix.Service.Handlers.ResponseMessagesHandlers.RejectionHandler" MsgTypeValue="3"/>
+      <ResponseMessageHandler Name="BusinessMessageReject" Type="Beltone.Services.Fix.Service.Handlers.ResponseMessagesHandlers.BusinessMessageRejectHandler" MsgTypeValue="j"/>
+      <ResponseMessageHandler Name="ExecutionReportResponseMessage" Type="Beltone.Services.Fix.Service.Handlers.ResponseMessagesHandlers.ExecutionReportResponseMessageHandler" MsgTypeValue="8"/>
+      <ResponseMessageHandler Name="LogOn" Type="Beltone.Services.Fix.Service.Handlers.ResponseMessagesHandlers.LogOnResponseHandler" MsgTypeValue="A"/>
+      <ResponseMessageHandler Name="OrderCancelReject" Type="Beltone.Services.Fix.Service.Handlers.ResponseMessagesHandlers.OrderCancelRejectHandler" MsgTypeValue="9"/>
+      <ResponseMessageHandler Name="LogOutResponseHandler" Type="Beltone.Services.Fix.Service.Handlers.ResponseMessagesHandlers.LogOutResponseHandler" MsgTypeValue="5"/>
+    </ResponseMessagesHandlersList>
+  </ResponseMessagesHandlers>
+
+  <McsdResponseMessagesHandlers>
+    <McsdResponseMessagesHandlersList>
+
+      <McsdResponseMessageHandler Name="MscdExecutionReportResponseMessage" Type=" Beltone.Services.Fix.Service.Handlers.ResponseMcsdMessagesHandlers.McsdExecutionResponseMessageHandler" />
+      
+    </McsdResponseMessagesHandlersList>
+  </McsdResponseMessagesHandlers>
+  
+  <PropertiesColumnsSchema>
+    <!--when u add some item then take into your account that this item should be added to SingleOrderProperties class too-->
+    <PropertiesColumnsSchemaList>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrderID" ColumnName="OrderID" PropertyType="System.Long" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ClOrderID" ColumnName="ClOrderID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrigClOrdID" ColumnName="OrigClOrdID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="BourseOrderID" ColumnName="BourseOrderID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="RequesterOrderID" ColumnName="RequesterOrderID" PropertyType="System.Guid" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ParentOrderID" ColumnName="ParentOrderID" PropertyType="System.Long" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IntegrationOrderID" ColumnName="IntegrationOrderID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ClientID" ColumnName="ClientID" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="CustodyID" ColumnName="CustodyID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="GroupID" ColumnName="GroupID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="MarketID" ColumnName="MarketID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ExchangeID" ColumnName="ExchangeID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="SecurityCode" ColumnName="SecurityCode" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OriginalQuantity" ColumnName="OriginalQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="CurrentQuantity" ColumnName="CurrentQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="RemainingQuantity" ColumnName="RemainingQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ExecutedQuantity" ColumnName="ExecutedQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="LastExecQuantity" ColumnName="LastExecQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OriginalPrice" ColumnName="OriginalPrice" PropertyType="System.Double" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="CurrentPrice" ColumnName="CurrentPrice" PropertyType="System.Double" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="AvgPrice" ColumnName="AvgPrice" PropertyType="System.Double" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="LastExecPrice" ColumnName="LastExecPrice" PropertyType="System.Double" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OriginalOrderType" ColumnName="OriginalOrderType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrderType" ColumnName="OrderType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrderSide" ColumnName="OrderSide" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrderStatus" ColumnName="OrderStatus" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OriginalOrderStatus" ColumnName="OriginalOrderStatus" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ExecType" ColumnName="ExecutionType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OriginalTimeInForce" ColumnName="OriginalTimeInForce" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="TimeInForce" ColumnName="TimeInForce" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="Note" ColumnName="Note" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="Note2" ColumnName="Note2" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="Note3" ColumnName="Note3" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="Note4" ColumnName="Note4" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="Note5" ColumnName="Note5" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="HasSystemError" ColumnName="HasSystemError" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ErrorMessage" ColumnName="ErrorMessage" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsActive" ColumnName="IsActive" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsRefused" ColumnName="IsRefused" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsCanceled" ColumnName="IsCanceled" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsSuspended" ColumnName="IsSuspended" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsExecuted" ColumnName="IsExecuted" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsRejected" ColumnName="IsRejected" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsExpired" ColumnName="IsExpired" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsCompleted" ColumnName="IsCompleted" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsPending" ColumnName="IsPending" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsAcceptedByBourse" ColumnName="IsAcceptedByBourse" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="PlacementDateTime" ColumnName="PlacementDateTime" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ModifiedDateTime" ColumnName="ModifiedDateTime" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrderRecievedDateTime" ColumnName="OrderRecievedDateTime" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrderConfirmDateTime" ColumnName="OrderConfirmDateTime" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrderCreatedBySysDateTime" ColumnName="OrderCreatedBySysDateTime" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ExpirationDate" ColumnName="ExpirationDate" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ExpirationDateTime" ColumnName="ExpirationDateTime" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrderViaID" ColumnName="OrderViaID" PropertyType="System.Byte" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OrderSystemType" ColumnName="OrderSystemType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="SourceIP" ColumnName="SourceIP" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="DestinationIP" ColumnName="DestinationIP" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="CurrencyID" ColumnName="CurrencyID" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="FX_Rate" ColumnName="FX_Rate" PropertyType="System.Decimal" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="CancellationReason" ColumnName="CancellationReason" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="RejectionReason" ColumnName="RejectionReason" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="SuspensionReason" ColumnName="SuspensionReason" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="TraderMind" ColumnName="TraderMind" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsConditionedPrice" ColumnName="IsConditionedPrice" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="ConditionedPrice" ColumnName="ConditionedPrice" PropertyType="System.Double" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OriginalHandleInst" ColumnName="OriginalHandleInst" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="HandleInst" ColumnName="HandleInst" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="AON" ColumnName="AON" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OriginalAON" ColumnName="OriginalAON" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="MinQty" ColumnName="MinQty" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="OriginalMinQty" ColumnName="OriginalMinQty" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsPendingMcsd" ColumnName="IsPendingMcsd" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+   
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="Alloc_RequestedQty" ColumnName="Alloc_RequestedQty" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="Alloc_RequestedPrice" ColumnName="Alloc_RequestedPrice" PropertyType="System.Double" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="Alloc_AON" ColumnName="Alloc_AON" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="Alloc_MinQty" ColumnName="Alloc_MinQty" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+          
+
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="AllocType" ColumnName="AllocType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+  
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="timeInForce" ColumnName="timeInForce" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="orderType" ColumnName="orderType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="mcsdQuantity" ColumnName="mcsdQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+    
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="AllocUnifiedCode" ColumnName="AllocUnifiedCode" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders" PropertyName="IsMcsdAllocRequired" ColumnName="IsMcsdAllocRequired" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+   
+      
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="OrderID" ColumnName="OrderID" PropertyType="System.Long" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ClOrderID" ColumnName="ClOrderID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="OrigClOrdID" ColumnName="OrigClOrdID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="CurrentQuantity" ColumnName="CurrentQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="RemainingQuantity" ColumnName="RemainingQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ExecutedQuantity" ColumnName="ExecutedQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="LastExecQuantity" ColumnName="LastExecQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="RequestedQuantity" ColumnName="RequestedQuantity" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="CurrentPrice" ColumnName="CurrentPrice" PropertyType="System.Double" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="AvgPrice" ColumnName="AvgPrice" PropertyType="System.Double" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ExecPrice" ColumnName="ExecPrice" PropertyType="System.Double" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="RequestedPrice" ColumnName="RequestedPrice" PropertyType="System.Double" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="OrderType" ColumnName="OrderType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="RequestedOrderType" ColumnName="RequestedOrderType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="OrderStatus" ColumnName="OrderStatus" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ExecType" ColumnName="ExecutionType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="RequestedTimeInForce" ColumnName="RequestedTimeInForce" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="TimeInForce" ColumnName="TimeInForce" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="Note" ColumnName="Note" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="Note2" ColumnName="Note2" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="Note3" ColumnName="Note3" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="HasSystemError" ColumnName="HasSystemError" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ErrorMessage" ColumnName="ErrorMessage" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ModifiedDateTime" ColumnName="ModifiedDateTime" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="OrderViaID" ColumnName="OrderViaID" PropertyType="System.Byte" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="OrderSystemType" ColumnName="OrderSystemType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="SourceIP" ColumnName="SourceIP" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="DestinationIP" ColumnName="DestinationIP" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="FX_Rate" ColumnName="FX_Rate" PropertyType="System.Decimal" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="CancellationReason" ColumnName="CancellationReason" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="RejectionReason" ColumnName="RejectionReason" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="SuspensionReason" ColumnName="SuspensionReason" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ExecutionMsgType" ColumnName="ExecutionMsgType" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ExecutionMsg" ColumnName="ExecutionMsg" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ExecutionID" ColumnName="ExecutionID" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="DateTime" ColumnName="DateTime" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ExecutionDate" ColumnName="ExecutionDate" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="ExecutionRecievedDateTime" ColumnName="ExecutionRecievedDateTime" PropertyType="System.DateTime" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="IsRefusedRequest" ColumnName="IsRefusedRequest" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="IsUserRequest" ColumnName="IsUserRequest" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="IsResponse" ColumnName="IsResponse" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="IsNewOrderRequest" ColumnName="IsNewOrderRequest" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="IsNewOrderResponse" ColumnName="IsNewOrderResponse" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="IsCancelRequest" ColumnName="IsCancelRequest" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="IsCancelResponse" ColumnName="IsCancelResponse" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="IsModifyRequest" ColumnName="IsModifyRequest" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="IsModifyResponse" ColumnName="IsModifyResponse" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="HandleInst" ColumnName="HandleInst" PropertyType="System.String" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="AON" ColumnName="AON" PropertyType="System.Boolean" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="MinQty" ColumnName="MinQty" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+      <PropertiesColumnsSchemaItem TableName="Orders_Details" PropertyName="RequestedMinQty" ColumnName="RequestedMinQty" PropertyType="System.Int" DefaultValue="" ColumnDBType="" ColumnDBSize="0" IsActive="true"/>
+    </PropertiesColumnsSchemaList>
+  </PropertiesColumnsSchema>
+  <!--<RejectionReasonsMessages>
+    <RejectionReasonMessage>
+      <Message Status="BrokerOption" Value="0" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="UnknowSecurityCode" Value="1" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="ExchangeClosed" Value="2" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="OrderExceedsLimit" Value="3" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="UnknownOrder" Value="5" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="DuplicateOrder" Value="6" CodeValue ="" BodyAr="" BodyEn=""/>
+    </RejectionReasonMessage>
+  </RejectionReasonsMessages>-->
+  <!--<ExecutionTypesMessages>
+    <ExecutionTypeMessage>
+      <Message Status="New" Value="0" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="PartialFill" Value="1" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="Fill" Value="2" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="Canceled" Value="4" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="Replace" Value="5" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="PendingCancel" Value="6" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="Rejected" Value="8" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="Suspended" Value="9" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="PendingNew" Value="A" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="Calculated" Value="" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="Expired" Value="" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="AcceptedForBidding" Value="" CodeValue ="" BodyAr="" BodyEn=""/>
+      <Message Status="PendingReplace" Value="" CodeValue ="" BodyAr="" BodyEn=""/>
+    </ExecutionTypeMessage>
+  </ExecutionTypesMessages>-->
+  <connectionStrings>
+    <add name="FixDbEntities" connectionString="metadata=res://*/FixDB.csdl|res://*/FixDB.ssdl|res://*/FixDB.msl;provider=System.Data.SqlClient;provider connection string=&quot;data source=10.20.50.218;initial catalog=Beltone.FixService;integrated security=True;MultipleActiveResultSets=True;App=EntityFramework&quot;" providerName="System.Data.EntityClient"/>
+    <add name="BasicDataDBConnectionString" connectionString="Data Source=10.20.50.218;Database=Beltone.BasicData;Persist Security Info=True;Max Pool Size=500;Connect Timeout=600;Integrated Security=SSPI;" providerName="System.Data.SqlClient"/>
+    <add name="FixOrdersDBConnectionString" connectionString="Data Source=10.20.50.218;Database=Beltone.FixService;Persist Security Info=True;Max Pool Size=500;Connect Timeout=600;Integrated Security=SSPI;" providerName="System.Data.SqlClient"/>
+  </connectionStrings>
+  <appSettings>
+    <add key="SettingsFileName" value="settings.txt"/>
+    <add key="SequenceFilePath" value="C:\FIX.4.2-MMFIX-BELTONE.body\FIX.4.2-MMFIX-BELTONE.seqnums"/>
+    <add key="ReinitializeCounters" value="false"/>
+    <add key="CheckMultipleInstances" value="true"/>
+    <add key="CheckQueueExistance" value="true"/>
+    <add key="FixQueueAuthenticatedUser" value="rkashef"/>
+    <add key="RecievedMessagesQueueName" value=".\PRIVATE$\FixOrdersQueue"/>
+    <add key="IsTransactionalQueue" value="true"/>
+    <add key="ConsiderSysShutdown" value="false"/>
+    <add key="SysShutdownTime" value="21:00:00.000"/>
+    <add key="SMTPHostName" value="10.50.50.48"/>
+    <add key="SMTPTimeout" value="10000"/>
+    <add key="SMTPPriority" value="High"/>
+    <add key="SupportMailTo" value="rkashef@beltonefinancial.com"/>
+    <add key="SupportMailFrom" value="rkashef@beltonefinancial.com"/>
+    <add key="CheckEndOfSessionInMilliSec" value="5000"/>
+    <add key="SupportMailCC" value=""/>
+    <add key="RequestsRouterProcessorsNum" value="10"/>
+    <add key="ResponsesRouterProcessorsNum" value="10"/>
+    <add key="McsdResponsesRouterProcessorsNum" value="1"/>
+    <add key="MsgTypeTag" value="35"/>
+    <add key="FixMessageVersionTag" value="8"/>
+    <add key="SenderCompIDTag" value="49"/>
+    <add key="TargetCompIDTag" value="56"/>
+    <add key="ClOrderIDTag" value="11"/>
+    <add key="OrderStatusTag" value="39"/>
+    <add key="ExecTypeTag" value="150"/>
+    <add key="OrderRejReasonTag" value="103"/>
+    <add key="ExecTransType" value="20"/>
+    <add key="ClOrderIDTag" value="11"/>
+    <add key="AwaitTestResInMS" value="5000"/>
+    <add key="OrderPriceDigitsRounding" value="2"/>
+    <add key="AllowableOrderDelayInMilliSeconds" value="10000"/>
+    <add key="AccessRetry" value="3"/>
+    <!--30 sec-->
+    <add key="AllowableSubscriptionDelayInMilliSeconds" value="30000"/>
+    <add key="StocksIssuesQuery" value="select * from issues"/>
+    <add key="FixOrdersDBConnectionString" value="Data source=10.20.50.218;Database=Beltone.FixService;Integrated Security=True"/>
+    <add key="BasicDataDBConnectionString" value="Data source=10.20.50.218;Database=Beltone.BasicData;Integrated Security=True"/>
+    <add key="ClientSettingsProvider.ServiceUri" value=""/>
+
+  <!-- MCSD Congiguraionts -->
+    <add key="MCSDresponseQueueIP" value="10.20.22.32"/>
+    <add key="MCSDresponseQueueName" value="mcsdresponsequeue"/>
+                                            
+    <add key="MCSD_UserName" value="Fix"/>
+    <add key="MCSD_Password" value="Fix"/>
+    <add key="OverrideMCSDQueue" value="false"/>
+    <add key="FlushMCSDUpdatesOffline" value="true"/>
+    <add key="BrokerCode" value="1094"/>
+    <add key="McsdServicePingIntervals" value="5000"/>
+    <add key="AllowBuyAllocation" value="false"/>
+    
+    <!-- ///// -->
+  
+  </appSettings>
+  <system.serviceModel>
+
+    <client>
+      <!-- MCSD Service configurations -->
+      <endpoint name="netTcpBinding_IMcdrAdmin" address="net.tcp://10.20.22.32:9873/McdrAdmin.svc" binding="netTcpBinding" bindingConfiguration="netTcpBinding" 
+              contract="Beltone.Services.MCDR.Contract.Interfaces.IMcdrAdmin">
+        
+      
+      </endpoint>
+    
+      <!--<endpoint address="net.msmq://10.20.22.132/private/mcdrsvcqueue" binding="netMsmqBinding" bindingConfiguration="McdrBinding" contract="Beltone.Services.MCDR.Contract.Interfaces.IMcdr" name="MSMQ"/>-->
+
+      <endpoint address="net.msmq://10.20.22.32/private/mcdrsvcqueue" binding="netMsmqBinding" bindingConfiguration="McdrBinding" contract="Beltone.Services.MCDR.Contract.Interfaces.IMcdr" name="MSMQ"/>
+    
+     <!-- MCSD Service configurations -->
+    </client>
+
+
+    <services>
+
+      <service behaviorConfiguration="OrderProcessorServiceBehavior" name="Beltone.Services.Fix.Service.OrdersService.FixOrdSvc">
+        <host>
+          <baseAddresses>
+            <add baseAddress="net.msmq://./private/FixOrdersQueue"/>
+            <add baseAddress="http://localhost:9075/OrdersService"/>
+          </baseAddresses>
+        </host>
+        <endpoint address="net.msmq://./private/FixOrdersQueue" binding="netMsmqBinding" bindingConfiguration="OrdersBinding" contract="Beltone.Services.Fix.Contract.IOrders"/>
+        <!--<endpoint address="mex" binding="mexHttpBinding" contract="IMetadataExchange"/>-->
+      </service>
+
+      <service name="Beltone.Services.Fix.Service.FixAdminSvc" behaviorConfiguration="AdminServiceBehavior">
+        <host>
+          <baseAddresses>
+            <add baseAddress="net.tcp://localhost:9862/FixAdminSvc.svc"/>
+          </baseAddresses>
+        </host>
+        <endpoint bindingConfiguration="netTcpBindingConf" binding="netTcpBinding" contract="Beltone.Services.Fix.Contract.IFixAdmin">
+        </endpoint>
+        <!--<endpoint address="mex" binding="netTcpBinding" contract="IMetadataExchange" bindingConfiguration="mexTcpBindingConf"/>-->
+      </service>
+
+    </services>
+
+    <bindings>
+
+      <netTcpBinding>
+      
+        <binding name="netTcpBindingConf" closeTimeout="00:010:00" portSharingEnabled="false" openTimeout="00:010:00" receiveTimeout="00:30:10" sendTimeout="23:59:59" transactionFlow="false" transferMode="Buffered" hostNameComparisonMode="StrongWildcard" listenBacklog="10" maxBufferPoolSize="2147483647" maxBufferSize="2147483647" maxConnections="10" maxReceivedMessageSize="2147483647">
+          <readerQuotas maxDepth="2147483647" maxStringContentLength="2147483647" maxArrayLength="2147483647" maxBytesPerRead="2147483647" maxNameTableCharCount="2147483647"/>
+          <reliableSession ordered="false" inactivityTimeout="10:00:00" enabled="false"/>
+          <security mode="None">
+            <transport clientCredentialType="None" protectionLevel="None"/>
+          </security>
+        </binding>
+        
+        <binding name="mexTcpBindingConf" portSharingEnabled="false">
+          <security mode="None">
+            <transport protectionLevel="None"/>
+          </security>
+        </binding>
+       
+        <binding name="netTcpBinding" closeTimeout="00:010:00" openTimeout="00:010:00" receiveTimeout="00:10:00" sendTimeout="00:010:00" transactionFlow="false" transferMode="Buffered" hostNameComparisonMode="StrongWildcard" listenBacklog="100" maxBufferPoolSize="2147483647" maxBufferSize="2147483647" maxConnections="10" maxReceivedMessageSize="2147483647">
+          <readerQuotas maxDepth="2147483647" maxStringContentLength="2147483647" maxArrayLength="2147483647" maxBytesPerRead="2147483647" maxNameTableCharCount="2147483647"/>
+          <reliableSession ordered="true" inactivityTimeout="00:10:00" enabled="false"/>
+          <security mode="None">
+            <transport clientCredentialType="None"  />
+          </security>
+        </binding>
+        
+        
+      </netTcpBinding>
+
+      <netMsmqBinding>
+        <binding name="OrdersBinding" maxReceivedMessageSize="1048576" maxBufferPoolSize="1048576">
+          <readerQuotas maxDepth="1048576" maxStringContentLength="1048576" maxArrayLength="1048576" maxBytesPerRead="1048576" maxNameTableCharCount="1048576"/>
+          <security mode="None">
+            <transport msmqAuthenticationMode="None" msmqProtectionLevel="None"/>
+            <message clientCredentialType="None"/>
+          </security>
+        </binding>
+        <binding name="McdrBinding" maxReceivedMessageSize="1048576" maxBufferPoolSize="1048576">
+          <readerQuotas maxDepth="1048576" maxStringContentLength="1048576" maxArrayLength="1048576" maxBytesPerRead="1048576" maxNameTableCharCount="1048576"/>
+          <security mode="None">
+            <transport msmqAuthenticationMode="None" msmqProtectionLevel="None"/>
+            <message clientCredentialType="None"/>
+          </security>
+        </binding>
+      </netMsmqBinding>
+
+    </bindings>
+
+    <behaviors>
+      <serviceBehaviors>
+
+        <behavior name="AdminServiceBehavior">
+          <serviceMetadata/>
+          <useRequestHeadersForMetadataAddress/>
+          <serviceThrottling maxConcurrentCalls="1000" maxConcurrentInstances="1000" maxConcurrentSessions="1000"/>
+          <!--<serviceMetadata httpGetEnabled="false" httpGetUrl=""/>-->
+          <serviceDebug includeExceptionDetailInFaults="true"/>
+          <dataContractSerializer maxItemsInObjectGraph="2147483647"/>
+        </behavior>
+
+        <behavior name="OrderProcessorServiceBehavior">
+          <serviceMetadata httpGetEnabled="True"/>
+        </behavior>
+
+      </serviceBehaviors>
+    </behaviors>
+  </system.serviceModel>
+  <startup>
+    <supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.0"/>
+  </startup>
+  <system.web>
+    <membership defaultProvider="ClientAuthenticationMembershipProvider">
+      <providers>
+        <add name="ClientAuthenticationMembershipProvider" type="System.Web.ClientServices.Providers.ClientFormsAuthenticationMembershipProvider, System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35" serviceUri=""/>
+      </providers>
+    </membership>
+    <roleManager defaultProvider="ClientRoleProvider" enabled="true">
+      <providers>
+        <add name="ClientRoleProvider" type="System.Web.ClientServices.Providers.ClientRoleProvider, System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35" serviceUri="" cacheTimeout="86400"/>
+      </providers>
+    </roleManager>
+  </system.web>
+</configuration>

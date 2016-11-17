@@ -1,0 +1,444 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Beltone.Services.MCDR.Contract.Interfaces;
+using Beltone.Services.MCDR.Contract.Entities;
+using Beltone.Services.MCDR.Contract.Constants;
+using System.ServiceModel;
+using Beltone.Services.MCDR.Contract.Entities.FromAdmin;
+using Beltone.Services.MCDR.Contract.Entities.ToAdmin;
+using System.Messaging;
+using Beltone.Services.Fix.Utilities;
+using Beltone.Services.MCDR.Contract.Entities.ResMsgs;
+using Beltone.Services.MCDR.Contract.Entities.ReqMsgs;
+
+using Beltone.Services.MCDR.Contract.Entities.Shared;
+using Beltone.Services.MCDR.Contract.Constants;
+
+using System.Threading;
+using Beltone.Services.ProcessorsRouter.Entities;
+
+namespace Beltone.Services.Fix.MCSD
+{
+    public static class McsdGatwayManager
+    {
+        #region Declerations
+        static IMcdrAdmin m_clientMcsd;
+        static Thread taskMcsdUpdate;
+        static Thread taskMCSDPing;
+        static Thread taskSubscribe;
+        static Thread taskReSubscribe;
+        static string m_MCSDresponseQueueIP;
+        static string m_MCSDresponseQueueName;
+        static string m_MCSDUserName;
+        static string m_MCSD_Password;
+        static bool m_OverrideMCSDQueue = false;
+        static bool m_FlushMCSDUpdatesOffline = false;
+        static bool _IsPingToMcsdStarted = false;
+        static Guid _clientSessionKey;
+        static bool _IsMcsdSessionUp = false;
+        private static Router m_mcsdRouter;
+        private static int _McsdServicePingIntervals = 5000;
+      private static  IMCDSCallbackHandler m_callbackHandler;
+      private static  InstanceContext m_InstanceContext;
+      private static  DuplexChannelFactory<IMcdrAdmin> m_factory;
+       private static IMCDSCallbackHandler.IncomingMessageDelegate m_IncomingMessageDelegate;
+     private static  Beltone.Services.MCDR.Contract.Entities.ToAdmin.subReq subRequest;
+   private static  McdrAdminMsg adminMsg = null;
+        //timer to check connectivity with MCSD should be added to establish connection with MCSD if it went down during the session.
+        #endregion
+
+        #region Constructor
+
+
+        #endregion
+
+        #region private members
+        private static void InitializeDeclerations()
+        {
+            try
+            {
+                m_MCSDresponseQueueIP = SystemConfigurations.GetAppSetting("MCSDresponseQueueIP");
+                m_MCSDresponseQueueName = SystemConfigurations.GetAppSetting("MCSDresponseQueueName");
+
+                m_MCSDUserName = SystemConfigurations.GetAppSetting("MCSD_UserName");
+                m_MCSD_Password = SystemConfigurations.GetAppSetting("MCSD_Password");
+
+                m_OverrideMCSDQueue = Boolean.Parse(SystemConfigurations.GetAppSetting("OverrideMCSDQueue"));
+                m_FlushMCSDUpdatesOffline = Boolean.Parse(SystemConfigurations.GetAppSetting("FlushMCSDUpdatesOffline"));
+
+                  _McsdServicePingIntervals =  int.Parse(SystemConfigurations.GetAppSetting("McsdServicePingIntervals"));
+
+               m_IncomingMessageDelegate = new IMCDSCallbackHandler.IncomingMessageDelegate(OnIncomingMsg);
+
+               m_callbackHandler = new IMCDSCallbackHandler(m_IncomingMessageDelegate);
+               m_InstanceContext = new InstanceContext(m_callbackHandler);
+               m_factory = new DuplexChannelFactory<IMcdrAdmin>(m_InstanceContext, "netTcpBinding_IMcdrAdmin");
+
+            
+
+            subRequest = new MCDR.Contract.Entities.ToAdmin.subReq();
+
+
+            }
+            catch (Exception exp)
+            {
+                SystemLogger.LogErrorAsync("MCSDManager Constructor Error: " + exp.ToString());
+            }
+        }
+
+        private static void Subscribe()
+        {
+            try
+            {
+                Console.WriteLine("Try connect to MCSDR .....");
+
+              //  if(m_clientMcsd == null)
+               
+                            
+               
+
+                subRequest.Username = m_MCSDUserName;
+                subRequest.Password = m_MCSD_Password;
+                subRequest.QueueName = m_MCSDresponseQueueName;
+                subRequest.QueueIP = m_MCSDresponseQueueIP;
+                subRequest.FlushUpdatesOffline = false;
+
+                m_clientMcsd = m_factory.CreateChannel();
+              
+
+                 adminMsg = m_clientMcsd.Subscribe(subRequest);
+
+                _IsMcsdSessionUp = true;
+
+                ((ICommunicationObject)m_clientMcsd).Closed += MCSDManager_Closed;
+                ((ICommunicationObject)m_clientMcsd).Faulted += MCSDManager_Faulted;
+                ((ICommunicationObject)m_clientMcsd).Opened += McsdGatwayManager_Opened;
+
+                SystemLogger.LogEventAsync("Connected to MCSD successfully !");
+                SystemLogger.WriteOnConsoleAsync(true, "Connected to MCSD successfully !", ConsoleColor.Green, ConsoleColor.Black, false);
+
+            }
+            catch (Exception exp)
+            {
+                //SystemLogger.LogErrorAsync("Subscribtion to MCSD Service Failed. Error : " + exp.ToString());
+                SystemLogger.WriteOnConsoleAsync(true, "Subscribtion to MCSD Service Failed. Error : " + exp.Message,ConsoleColor.Red,ConsoleColor.Black,false);
+            }
+
+            finally
+            {
+                if(_IsMcsdSessionUp == false)
+                {
+                    System.Threading.Thread.Sleep(3000);
+                    Subscribe();
+                }
+            }
+        }
+
+        static void McsdGatwayManager_Opened(object sender, EventArgs e)
+        {
+            _IsMcsdSessionUp = true;
+        }
+
+        private static void OnIncomingMsg(IMcdrFromAdmin[] msgs)
+        {
+            try
+            {
+                foreach (var msg in msgs)
+                {
+                    if (msg is McdrSessionUp)
+                    {
+                        try
+                        {
+                            _clientSessionKey = ((McdrSessionUp)msg).SessionKey;
+                            _IsMcsdSessionUp = true;
+
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.ToString());
+                        }
+                    }
+                }
+            }
+            catch(Exception exp)
+            {
+                SystemLogger.LogErrorAsync("Failed to handle received MCSD from Admin Message . Error : " + exp.ToString());
+            }
+        }
+
+        static void MCSDManager_Faulted(object sender, EventArgs e)
+        {
+            try
+            {
+                _IsMcsdSessionUp = false;
+                SystemLogger.LogErrorAsync("MCSD Session Faulted");
+            }
+            catch (Exception exp)
+            {
+                SystemLogger.LogErrorAsync(exp.ToString());
+            }
+
+            finally
+            {
+                // try to connect again.
+                //Subscribe();
+                taskReSubscribe = new Thread(new ThreadStart(Subscribe));
+                taskReSubscribe.IsBackground = true;
+                taskReSubscribe.Start();
+            }
+        }
+
+        static void MCSDManager_Closed(object sender, EventArgs e)
+        {
+            try
+            {
+                _IsMcsdSessionUp = false;
+                SystemLogger.LogErrorAsync("MCSD Session Closed");
+             
+            }
+            catch (Exception exp)
+            {
+                SystemLogger.LogErrorAsync(exp.ToString());
+            }
+
+            finally
+            {
+                // try to connect again.
+                //Subscribe();
+                 taskReSubscribe = new Thread(new ThreadStart(Subscribe));
+                taskReSubscribe.IsBackground = true;
+                taskReSubscribe.Start();
+            }
+        }
+
+        private static void Unsubscribe()
+        {
+            try
+            {
+                m_clientMcsd.Unsubscribe();
+            }
+            catch (Exception exp)
+            {
+                SystemLogger.LogErrorAsync("Unsubscribtion from MCSD Service Failed. Error : " + exp.ToString());
+                SystemLogger.WriteOnConsoleAsync(true,"Unsubscribtion from MCSD Service Failed. Error : " + exp.ToString(), ConsoleColor.Red, ConsoleColor.Black, true);
+            }
+        }
+        
+
+        #endregion
+
+        #region Public members
+        public static void Initialize(Router mcsdRouter)
+        {
+            m_mcsdRouter = mcsdRouter;
+            InitializeDeclerations();
+            StartReceiveUpdatesFromMCDS();
+          
+        }
+
+        public static void LoginToMCSD()
+        {
+            //Subscribe();
+            taskSubscribe = new Thread(new ThreadStart(Subscribe));
+            taskSubscribe.IsBackground = true;
+            taskSubscribe.Start();
+        }
+        #endregion
+
+        #region events handlers
+        private static void StartReceiveUpdatesFromMCDS()
+        {
+            taskMcsdUpdate = new Thread(new ThreadStart( HandleReceivedMSCDMessages));
+            taskMcsdUpdate.IsBackground = true;
+            taskMcsdUpdate.Start();
+        }
+
+        private static void HandleReceivedMSCDMessages()
+        {
+
+            MessageQueue m_msgSenderQueue = new MessageQueue(string.Format(@"Formatname:DIRECT=TCP:{0}\private$\{1}", m_MCSDresponseQueueIP, m_MCSDresponseQueueName));
+            XmlMessageFormatter formatter = new XmlMessageFormatter(new Type[] { typeof(McdrTestReq), typeof(AllocRes) });
+
+            while (true)
+            {
+                try
+                {
+
+                    System.Messaging.Message msg = (System.Messaging.Message)m_msgSenderQueue.Receive();
+                    if (msg == null)
+                    {
+                        continue;
+                    }
+
+                    object recievedMsg = formatter.Read(msg);
+
+                    if (recievedMsg.GetType() == typeof(McdrTestReq))
+                    {
+                        try
+                        {
+                            IMcdrToAdmin msgTo = new McdrTestRes() { TestKey = ((McdrTestReq)recievedMsg).TestKey};
+                            m_clientMcsd.HandleMsg(msgTo);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.Write(ex.ToString());
+                        }
+                       
+                    }
+                    else if (recievedMsg.GetType() == typeof(AllocRes))
+                    {
+                        AllocRes respMsg = (AllocRes)recievedMsg;
+                        m_mcsdRouter.PushMessage(respMsg);
+                    }
+
+                }
+                catch (Exception exp)
+                {
+                    SystemLogger.LogErrorAsync("Error while handling MCSD Message. Error : " + exp.ToString());
+                    continue;
+                }
+            }
+        }
+
+        private static void StartPingMCSD()
+        {
+
+            if (_IsPingToMcsdStarted == false)
+            {
+                taskMCSDPing = new Thread(new ThreadStart( PingMCSDService));
+                taskMCSDPing.IsBackground = true;
+                taskMCSDPing.Start();
+            }
+        }
+
+        private static void PingMCSDService()
+        {
+            try
+            {
+                while (_IsPingToMcsdStarted)
+                {
+                    m_clientMcsd.Ping();
+                    System.Threading.Thread.Sleep(_McsdServicePingIntervals);
+                }
+            }
+            catch (Exception exp)
+            {
+                SystemLogger.LogErrorAsync("Pinging MCSD Service Failed. Error : " + exp.ToString());
+            }
+
+        }
+        
+        #endregion
+
+       public static void PlaceMcsdNewOrderAllocation(int quantity, string exchange, string custodyID, string brokerCode, string unifiedCode, string securityID, Guid reqID,string AllocType,DateTime expirydate)
+        {
+            try
+            {
+                if (_IsMcsdSessionUp)
+                {
+                  using (Beltone.Services.MCDR.Proxy.McdrProxy p = new Beltone.Services.MCDR.Proxy.McdrProxy())
+                    {
+                        List<OpVal> ops = new List<OpVal>();
+                        ops.Add(new OpVal() { Operand = ALLOC_REQ_FIELDS.ALLOC_TYPE, Value = AllocType }); //Regular
+                        ops.Add(new OpVal() { Operand = ALLOC_REQ_FIELDS.ALLOC_QTY, Value = quantity });
+                        ops.Add(new OpVal() { Operand = ALLOC_REQ_FIELDS.EX_CODE, Value = exchange });
+                        ops.Add(new OpVal() { Operand = ALLOC_REQ_FIELDS.CUST_CODE, Value = custodyID });
+                        ops.Add(new OpVal() { Operand = ALLOC_REQ_FIELDS.BROKER_CODE, Value = brokerCode });
+                        ops.Add(new OpVal() { Operand = ALLOC_REQ_FIELDS.UNI_CODE, Value = unifiedCode });
+                        ops.Add(new OpVal() { Operand = ALLOC_REQ_FIELDS.SEC_CODE, Value = securityID });
+                        ops.Add(new OpVal() { Operand = ALLOC_REQ_FIELDS.EXP_DATE, Value =expirydate });//
+                        ops.Add(new OpVal() { Operand = ALLOC_REQ_FIELDS.OP_TYP, Value = ALLOC_SIDE.SELL });
+                        p.Handle(new NewAllocReq() { SessionKey = _clientSessionKey, ReqID = reqID, Fields = ops.ToArray() });
+                    }
+                }
+
+                else
+                {
+                    throw new Exception("MCSD Service is down. no sell orders can be handled !");
+                }
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+        }
+       public static void PlaceMcsdModifyOrderAllocation(int quantity, Guid reqID,DateTime expiryDate)
+       {
+           try
+           {
+               if (_IsMcsdSessionUp)
+               {
+                   using (Beltone.Services.MCDR.Proxy.McdrProxy p = new Beltone.Services.MCDR.Proxy.McdrProxy())
+                   {
+                       List<OpVal> ops = new List<OpVal>();
+                       ops.Add(new OpVal() { Operand = Beltone.Services.MCDR.Contract.Constants.ALLOC_REQ_FIELDS.ALLOC_QTY, Value = quantity });
+                       ops.Add(new OpVal() { Operand = ALLOC_REQ_FIELDS.EXP_DATE, Value = expiryDate });
+                       p.Handle(new UpdateAllocReq() { SessionKey = _clientSessionKey, ReqID = reqID, Fields = ops.ToArray() });
+                   }
+               }
+
+               else
+               {
+                   throw new Exception("MCSD Service is down. no sell orders can be handled !");
+               }
+           }
+           catch (Exception ex)
+           {
+               throw ex;
+           }
+
+       }
+
+       //public static void PlaceMcsdCancelOrderAllocation(Guid reqID)
+       //{
+       //    try
+       //    {
+       //        if (_IsMcsdSessionUp)
+       //        {
+       //            using (Beltone.Services.MCDR.Proxy.McdrProxy p = new Beltone.Services.MCDR.Proxy.McdrProxy())
+       //            {
+       //                p.Handle(new CancelAllocReq() { SessionKey = _clientSessionKey, ReqID = reqID });
+       //            }
+       //        }
+
+       //        else
+       //        {
+       //            throw new Exception("MCSD Service is down. no sell orders can be handled !");
+       //        }
+       //    }
+       //    catch (Exception ex)
+       //    {
+       //        throw ex;
+       //    }
+       //}
+   
+    }
+    
+    #region wcf client Callback
+    public class IMCDSCallbackHandler : IMcdrAdminCallback
+    {
+        private IncomingMessageDelegate m_IncomingMessageDelegate;
+        
+     
+        public delegate void IncomingMessageDelegate(IMcdrFromAdmin[] msg);
+
+       
+        public IMCDSCallbackHandler(IncomingMessageDelegate del)
+            {
+                m_IncomingMessageDelegate = del;
+            }
+
+
+        public void PushAdminMsg(IMcdrFromAdmin[] msgs)
+        {
+            if (m_IncomingMessageDelegate != null)
+            {
+                m_IncomingMessageDelegate(msgs);
+            }
+        }
+    }
+    #endregion
+}
