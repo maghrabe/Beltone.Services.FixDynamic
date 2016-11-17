@@ -6,6 +6,7 @@ using System.Text;
 namespace Beltone.Services.Fix.Entities
 {
     public enum FixSessionStatus
+
     {
         Connected = 1,
         SessionStarted = 2,
@@ -15,6 +16,7 @@ namespace Beltone.Services.Fix.Entities
         ServerFailure = 7,
         ConnectionFailure = 8,
         RecievingUpdates = 9
+            /////////////////////////////
     }
 
     public enum OrderActions
